@@ -1,0 +1,388 @@
+---
+title: "clustering analysis"
+output: html_document
+
+---
+
+# explore data
+```{r}
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(ggplot2)
+```
+
+# read data
+```{r}
+yelp = read.csv('yelp.csv',stringsAsFactors = F)
+```
+
+# clean data
+```{r}
+str(yelp)
+#3yelp$date <- as.Date(yelp$date)
+head(yelp)
+summary(yelp)
+ggplot(data=yelp,aes(x=stars))+geom_histogram(binwidth=0.5,fill='cadetblue') 
+```
+
+
+
+```{r}
+#no negative data in star
+sum(yelp$star<0)
+#no missing values in all variables (we can also see the conclusion in the summary() result) 
+yelp$business_id[is.na(yelp$business_id)]
+yelp$date[is.na(yelp$date)]
+yelp$review_id[is.na(yelp$review_id)]
+yelp$stars[is.na(yelp$stars)]
+yelp$text[is.na(yelp$text)]
+yelp$type[is.na(yelp$type)]
+yelp$user_id[is.na(yelp$user_id)]
+yelp$cool[is.na(yelp$cool)]
+yelp$useful[is.na(yelp$useful)]
+yelp$funny[is.na(yelp$funny)]
+
+```
+
+# examine outlier
+```{r}
+
+# no outliers
+ggplot(data=yelp,aes(x='',y=stars))+
+  geom_boxplot(outlier.color='red',outlier.alpha=0.5, fill='cadetblue')+
+  geom_text(aes(x='',y=median(stars),label=median(stars)),size=3,hjust=11)+
+  xlab(label = '')
+
+```
+
+
+
+# correlation
+```{r}
+library(ggplot2)
+ggplot(data=yelp,aes(x=cool,y=stars))+
+  geom_point()+
+  coord_cartesian(ylim=c(0,10))
+#correlation between cool and stars is 0.05255454
+cor(yelp$stars,yelp$cool)
+
+
+ggplot(data=yelp,aes(x=useful,y=stars))+
+  geom_point()+
+  coord_cartesian(ylim=c(0,10))
+#correlation between useful and stars is -0.02347896
+cor(yelp$stars,yelp$useful)
+
+
+ggplot(data=yelp,aes(x=funny,y=stars))+
+  geom_point()+
+  coord_cartesian(ylim=c(0,10))
+#correlation between funny and stars is -0.06130645
+cor(yelp$stars,yelp$funny)
+
+```
+
+
+
+# Cluster - Celia
+# data prepare for clustering
+```{r}
+str(yelp)
+# Delete redundant variables:
+#'type' values are all identical, so it will not contribute to further analysis. So it is trimmed.
+unique(yelp$type)
+yelp_prepare = yelp[,-6]
+str(yelp_prepare)
+
+# Total observations
+# 10000
+nrow(yelp_prepare)
+
+# Add potential meaningful variables:
+# The number of unique business_id is 4174, which means there are duplicate values in business_id.
+unique_business_id = unique(yelp_cluster$business_id)
+length(unique_business_id)
+# Add a colunmn business_count to show the number of reviews created for the business entity
+yelp_prepare = yelp_prepare %>%
+  group_by(business_id) %>%
+  mutate(business_count = n())
+summary(yelp_prepare$business_count)
+
+ggplot(data=yelp_prepare,aes(x=business_count))+
+  geom_histogram(binwidth=0.5,fill='cadetblue')
+
+# The number of unique review_idis 10000. So review_id is the key of the table.
+unique_review_id = unique(yelp_cluster$review_id)
+length(unique_review_id)
+
+# The number of unique user_id is 6413, which means there are duplicate values in user_id
+unique_user_id = unique(yelp_cluster$user_id)
+length(unique_user_id)
+# Add a colunmn user_count to show the number of reviews created by the user
+library(dplyr)
+yelp_prepare = yelp_prepare %>%
+  group_by(user_id) %>%
+  mutate(user_count = n())
+summary(yelp_prepare$user_count)
+
+ggplot(data=yelp_prepare,aes(x=user_count))+
+  geom_histogram(binwidth=0.5,fill='cadetblue')
+
+
+# Add a column days_till_now to represent the duration days between the review date and current date. And transfer this variable from numeric to integer for further analysis.
+yelp_prepare$days_till_now<- difftime(as.Date('2020-04-28'), yelp_prepare$date, units = c("days"))
+yelp_prepare$days_till_now = as.integer(yelp_prepare$days_till_now)
+summary(yelp_prepare$days_till_now)
+str(yelp_prepare$days_till_now)
+
+ggplot(data=yelp_prepare,aes(x=days_till_now))+
+  geom_histogram(binwidth=0.5,fill='cadetblue')
+
+# Add a column text_length to represent the length of the review text. 
+yelp_prepare$text_length = nchar(yelp_prepare$text)
+str(yelp_prepare$text_length)
+
+ggplot(data=yelp_prepare,aes(x=text_length))+
+  geom_histogram(binwidth=0.5,fill='cadetblue')
+
+# Select variables for clustering. Choose all the numeric variables.
+yelp_cluster = yelp_prepare[, c(4,7,8,9,10,11,12,13)]
+str(yelp_cluster)
+head(yelp_cluster)
+
+# Examine correlations for the selected variables.
+cor_yelp_cluster <- round(cor(yelp_cluster),2)
+head(cor_yelp_cluster)
+library(reshape2)
+melted_yelp_cluster <- melt(cor_yelp_cluster)
+head(melted_yelp_cluster)
+library(ggplot2)
+ggplot(data = melted_yelp_cluster, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+
+# Scale 
+library(cluster)
+yelp_cluster_scaled=scale(yelp_cluster)
+
+```
+
+
+Hierarchical cluster analysis 
+```{r}
+# Define similarity with Euclidean distance
+d = dist(x = yelp_cluster_scaled,method = 'euclidean') 
+
+# Use Hierarchical cluster
+h_clusters = hclust(d = d,method='ward.D2')
+
+# Examine Dengrogram
+plot(h_clusters)
+
+# Goodness of fit: 0.5268212. This is medium fit level of dendrogram matches the true distance metric.
+cor(cophenetic(h_clusters),d)
+
+# Choose the number of clusters
+# Cut cluster solution to only display the tree above 5. Based on the distance, a two or seven cluster solution looks good. Seven clusters may not be practical to handle, so we choose 2 clusters.
+plot(cut(as.dendrogram(h_clusters),h=5)$upper)
+
+# Selecting cluster
+h2_segments = cutree(tree = h_clusters,k=2)
+table(h2_segments)
+h7_segments = cutree(tree = h_clusters,k=7)
+table(h7_segments)
+
+# Two clusters plot
+plot(cut(as.dendrogram(h_clusters),h=5)$upper)
+rect.hclust(tree=h_clusters,k = 2,border='tomato')
+
+# Highlight a two cluster solution using dendextend
+library(dendextend)
+plot(color_branches(as.dendrogram(h_clusters),k = 2,groupLabels = F))
+
+# Visualize for two clusters using factor analysis
+# To express the clusters on a scatterplot, we flatten the data from 8 dimensions onto 2 by conducting a factor analysis with varimax rotation.
+install.packages('psych')
+library(psych)
+temp = data.frame(cluster = factor(h2_segments),
+           factor1 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,1],
+           factor2 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,2])
+ggplot(temp,aes(x=factor1,y=factor2,col=cluster))+
+  geom_point()
+
+# Visualize for two clusters using principle component analysis
+clusplot(yelp_cluster_scaled,
+         h2_segments,
+         color=T,shade=T,labels=4,lines=0,main='Hierarchical Cluster Plot')
+
+
+# Seven is hard to handle, we will choose 2 clusters.
+# Seven clusters plot
+plot(cut(as.dendrogram(h_clusters),h=5)$upper)
+rect.hclust(tree=h_clusters,k = 7,border='tomato')
+
+# Highlight a seven cluster solution using dendextend
+library(dendextend)
+plot(color_branches(as.dendrogram(h_clusters),k = 7,groupLabels = F))
+
+
+
+# Visualize for seven clusters
+# To express the clusters on a scatterplot, we flatten the data from 8 dimensions onto 2 by conducting a factor analysis with varimax rotation.
+install.packages('psych')
+library(psych)
+temp = data.frame(cluster = factor(h7_segments),
+           factor1 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,1],
+           factor2 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,2])
+ggplot(temp,aes(x=factor1,y=factor2,col=cluster))+
+  geom_point()
+
+# Visualize for seven clusters using principle component analysis
+clusplot(yelp_cluster_scaled,
+         h7_segments,
+         color=T,shade=T,labels=4,lines=0,main='Hierarchical Cluster Plot')
+```
+
+
+K-means cluster analysis 
+```{r}
+#Begin with an arbitrary assignment of observations to 2 cluster centroids.
+set.seed(1706)
+km2_segments = kmeans(x = yelp_cluster_scaled,centers = 2,iter.max=100)
+table(km2_segments$cluster)
+
+
+# Interpret number of clusters with total within sum of squares plot. Clusters are inferred from a sudden change in the line graph. (Here we choose cluster of 2)
+within_ss = sapply(1:8,FUN = function(x){
+  set.seed(1706)
+  kmeans(x = yelp_cluster_scaled,centers = x,iter.max = 100)$tot.withinss})
+
+ggplot(data=data.frame(cluster = 1:8,within_ss),aes(x=cluster,y=within_ss))+
+  geom_line(col='steelblue',size=1.2)+
+  geom_point()+
+  scale_x_continuous(breaks=seq(1,10,1))
+
+
+# Interpret number of clusters with ratio plot. Clusters are inferred from a sudden change in the line graph. (Here we choose cluster of 2, 6, 7)
+ratio_ss = sapply(1:8,FUN = function(x) {
+  set.seed(617)
+  km = kmeans(x = yelp_cluster_scaled,centers = x,iter.max = 1000)
+  km$betweenss/km$totss} )
+
+ggplot(data=data.frame(cluster = 1:8,ratio_ss),aes(x=cluster,y=ratio_ss))+
+  geom_line(col='steelblue',size=1.2)+
+  geom_point()+
+  scale_x_continuous(breaks=seq(1,10,1))
+
+
+#Interpret number of clusters with Silhouette plot. Clusters are inferred from a sudden change in the line graph. (Here we choose cluster of 2, 6, 7)
+silhoette_width = sapply(1:8,
+                         FUN = function(x) pam(x = yelp_cluster_scaled,k = x)$silinfo$avg.width)
+ggplot(data=data.frame(cluster = 1:8,silhoette_width),aes(x=cluster,y=silhoette_width))+
+  geom_line(col='steelblue',size=1.2)+
+  geom_point()+
+  scale_x_continuous(breaks=seq(1,8,1))
+
+
+
+# Visualize
+
+# Visualize for two clusters using factor analysis
+# To express the clusters on a scatterplot, we flatten the data from 8 dimensions onto 2 by conducting a factor analysis with varimax rotation.
+install.packages('psych')
+library(psych)
+temp = data.frame(cluster = factor(km2_segments$cluster),
+           factor1 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,1],
+           factor2 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,2])
+ggplot(temp,aes(x=factor1,y=factor2,col=cluster))+
+  geom_point()
+
+# Visualize for two clusters using principle component analysis
+clusplot(yelp_cluster_scaled,
+         km2_segments$cluster,
+         color=T,shade=T,labels=4,lines=0,main='Hierarchical Cluster Plot')
+```
+
+
+Model-based cluster analysis 
+```{r}
+# The optimal cluster solution is the one that performs best on BIC and log.likelihood. Interpret the number of clusters with a plot of bic.  We will be looking for the lowest bic in the line graph, which is 8.
+library(mclust)
+mclust_bic = sapply(1:8,FUN = function(x) -Mclust(yelp_cluster_scaled,G=x)$bic)
+ggplot(data=data.frame(cluster = 1:8,bic = mclust_bic),aes(x=cluster,y=bic))+
+  geom_line(col='steelblue',size=1.2)+
+  geom_point()+
+  scale_x_continuous(breaks=seq(1,10,1))
+
+# 8 clusters is not practical to handle. Choose 2 clusters refer to  hierarchical and k-means results.
+m2_clusters = Mclust(data = yelp_cluster_scaled,G = 2)
+m2_segments = m2_clusters$classification
+table(m2_segments)
+
+# Visualize
+# Visualize for two clusters using factor analysis
+# To express the clusters on a scatterplot, we flatten the data from 8 dimensions onto 2 by conducting a factor analysis with varimax rotation.
+library(psych)
+temp = data.frame(cluster = factor(m2_segments),
+           factor1 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,1],
+           factor2 = fa(yelp_cluster_scaled,nfactors = 2,rotate = 'varimax')$scores[,2])
+ggplot(temp,aes(x=factor1,y=factor2,col=cluster))+
+  geom_point()
+
+# Visualize for two clusters using principle component analysis
+clusplot(yelp_cluster_scaled,
+         m2_segments,
+         color=T,shade=T,labels=4,lines=0,main='Hierarchical Cluster Plot')
+```
+
+
+Contrast Result
+```{r}
+# Model based clustering drive more evenly divided clusters
+table(h2_segments)
+k2_segments= km2_segments$cluster
+table(k2_segments)
+table(m2_segment)
+
+
+```
+
+# Choose a cluster result and interpret the origin data
+```{r}
+#Because the model-based clusters divide the observations in an more even level. Let us use the model-based clusters to inspect the characteristics in each cluster. 
+
+# Combine segment membership with original data
+yelp_after_cluster = cbind(yelp_cluster, m2_segment)
+str(yelp_after_cluster)
+
+# In each cluster.
+library(dplyr); library(ggplot2); library(tidyr)
+yelp_after_cluster %>%
+  select(stars:business_count,m2_segment)%>%
+  group_by(m2_segment)%>%
+  summarize_all(function(x) round(mean(x,na.rm=T),2))%>%
+  gather(key = var,value = value,stars:business_count)%>%
+  ggplot(aes(x=var,y=value,fill=factor(m2_segment)))+
+  geom_col(position='dodge')+
+  coord_flip()
+
+yelp_after_cluster %>%
+  select(days_till_now, text_length,m2_segment)%>%
+  group_by(m2_segment)%>%
+  summarize_all(function(x) round(mean(x,na.rm=T),2))%>%
+  gather(key = var,value = value,days_till_now, text_length)%>%
+  ggplot(aes(x=var,y=value,fill=factor(m2_segment)))+
+  geom_col(position='dodge')+
+  coord_flip()
+
+
+# Conclusion
+# With model-based clustering method, observations could be clusted into two clusters. 
+# 1. The first group has smaller value in very variables excluding the 'star'. The difference in other factors in reviews don't affect the final star scores. Therefore, the star score may be not related to how people feel about the review content, or how popular a restaurant, or how active a reviewer is.  
+#Business impact: star scores may be determined by other factors. We could conduct further analysis combined with more data to find out what effect the star scores.
+
+# 2. The reviews with shorter text, or created by less active users, or created for less popular restaurants, tends to be voted as less useful, funny, or cool. 
+#Business impact: High quality reviews will earn more votes on Yelp, which could help promote the restaurant. Restaurant managers could cooperate with active yelp reviewers and provide incentives to encourage them to write high quality reviews. (Not for higher star scores, but for high quality review text.)
+
+```
+

@@ -1,0 +1,1425 @@
+---
+title: "Yelp Review Analysis"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(DT)
+library(knitr)
+library(Hmisc)
+library(tidyverse)
+library(stringr)        #This package is used for string manipulation functions
+library(dplyr)          #This package is used for data manipulation tasks
+library(tidyr)          #This package is used for data manipulation tasks
+library(data.table)     #This package is used to access the function fread which is a better/faster way to read large data
+library(wordcloud)      #This package is used to generate word clouds
+library(tm)             #This is a text mining package used in the process of generating word clouds
+#library(RWeka)          #This package is used to generate Bigramws and Trigrams
+library(ggplot2)        #This package is used for visualizations (chart/graph plotting functions)
+library(ggmap)          #This package is used for map functions 
+library(maps)           #This package is used for map functions
+library(leaflet)        #This package is used for plotting maps
+
+
+#for time series
+library(ggplot2);library(ggthemes);library(gridExtra)  # For plots 
+library(quantmod);library(xts);library(zoo) # For using xts class objects
+library(forecast) # Set of forecasting functions
+library(fpp); library(fpp2) # Datasets from Forecasting text by Rob Hyndman
+library(tseries) # for a statistical test
+library(dplyr) # Data wrangling
+library(data.table)
+
+#for sentiment analysis 
+library(tidytext) 
+library(lexicon)
+
+library(plotrix)
+library(corrplot)
+library(ggdendro)
+library(ggrepel)
+library(tidytext)
+library(stringr)
+library("e1071")
+library("caret")
+library(randomForest)
+library(FNN)
+library(glmnet)
+
+library(tensorflow)
+library(keras)
+
+library(ggplot2)
+library(ggthemes)
+```
+
+
+```{r read_data, echo=FALSE}
+#library(tidyverse)  # data manipulation
+#library(cluster)    # clustering algorithms
+#library(factoextra) # clustering algorithms & visualization
+install.packages('factoextra')
+```
+
+
+```{r read_data, echo=FALSE}
+library(tidyverse)  # data manipulation
+library(cluster)    # clustering algorithms
+library(factoextra) # clustering algorithms & visualization
+```
+
+
+```{r read_data, echo=FALSE}
+#setwd("/Users/chloe/Downloads/")
+
+################################################
+### Note: match the file name saved in the directory
+### DO NOT CHANGE THE data name ###
+#user = fread(input = "yelp_user_final.csv",stringsAsFactors = F)
+#business = fread(input = "yelp_business_final.csv",stringsAsFactors = F)
+#review = fread(input = "yelp_review_final.csv",stringsAsFactors = F)
+libraryy("textdata")
+```
+
+
+```{r setup}
+covid=fread(input= 'covid.csv',stringsAsFactors = F)
+business=fread(input ='Business.csv',stringsAsFactors = F)
+review=fread(input = 'Review.csv',stringsAsFactors = F)
+user=fread(input='User.csv',stringsAsFactors = F)
+```
+
+```{r read tables }
+head(review)
+head(user)
+```
+
+
+```{r explore_data, include=FALSE}
+# Review data
+str(review) 
+review[, summary(review)]
+review[, length(unique(user_id))] 
+
+# User data
+str(user)
+user[, summary(user)]
+
+# Business data
+str(business)
+business[, summary(business)]
+
+```
+
+
+```{r clean_data, echo=FALSE}
+# Review data
+# Reformatting date
+review[, date := as.Date(date)]
+
+review = review[, .(review_id, user_id, business_id, stars, useful, funny, cool, text, date)]
+
+# User data
+# Reformatting date
+user[, yelping_since := as.Date(yelping_since)]
+
+user = user[, .(review_count, yelping_since, useful, funny, cool, elite, friends, fans, average_stars, compliment_hot, compliment_more, compliment_profile, compliment_cute, compliment_list, compliment_note, compliment_plain, compliment_cool, compliment_funny, compliment_writer, compliment_photos), by = user_id]
+
+user <- user[!duplicated(user_id)]
+
+# Business data
+business = business[, .(name, address, city, state, postal_code, latitude, longitude, stars, review_count, is_open, attributes, categories), by = business_id]
+
+business <- business[!duplicated(business_id)]
+
+```
+
+# Report {.tabset}
+
+## Background
+
+Yelp has over 199 million business and restaurant reviews. Customers can use Yelp to find all kinds of information about local businesses such as restaurants, accountants, auto repair, and other service providers. It is not just an app, but also a platform that connects people with great local businesses together. To expand and leverage its unique business model, it should analyze the data and find new insights about future business opportunities. For example, creating a list of restaurants that people recommend the most and offering advertising space for those restaurants would help increase its advertisement revenue and satisfy customers’ needs at the same time.
+
+**Sources of data**
+
+- Yelp open dataset API
+ (http://people.ischool.berkeley.edu/~sayantan.satpati/yelp/)
+ 
+- Yelp Polarity Reviews (https://datasetsearch.research.google.com/search?query=yelp&docid=pk%2FduCkGnxVhkrWRAAAAAA%3D%3D)
+
+**Research Questions**
+
+1. Rating distributions by reviews, businesses, users
+2. Which business has the most reviews? What is their average rating?
+3. Are there any relationships between the location of businesses and the number of reviews?
+
+## Part 1: Data Summary {.tabset}
+
+### Q1: Business Categories {.tabset}
+
+```{r q1, echo=FALSE, message = FALSE}
+
+biz_data <- business %>%
+  separate_rows(categories, sep = "\\,")
+
+biz_data <- as.data.frame(biz_data)
+biz_data$clean_category <- trimws(biz_data$categories, which = c("left"))
+
+cat_count <- biz_data %>% count(clean_category) %>% mutate(n)
+setorderv(cat_count, cols = "n", order = -1)
+new_list <- cat_count %>% top_n(5)
+
+restaurant.count <- cat_count[[2]][1]
+medical.count <- cat_count[[2]][5]
+
+ggplot(new_list, aes(clean_category, n, fill = clean_category)) + geom_bar(stat="identity") + scale_fill_brewer(palette = "Blues") + labs(title = "Top 5 categories", y = "Number of Businesses", x = "Categories") + theme(legend.position="none")
+
+```
+
+There are 22 major business categories on Yelp, including Restaurants, Groceries (Food), Health & Medical, etc. There were more than 8 million businesses listed on the original data, however, for this analysis, we randomly selected 4022 businesses, with `r restaurant.count` restaurants and `r medical.count` Health and Medical related businesses. 
+
+ 
+### Q2: Rating Distribution {.tabset}
+
+#### By Review
+
+```{r q2_review, echo=FALSE}
+# total number of business
+tot.review <- review[, .N]
+min.date <- min(review$date)
+max.date <- max(review$date)
+  
+review_ratings <- review %>% group_by(stars) %>% count()
+ggplot(data=review_ratings, aes(x=stars, y=n)) + geom_bar(stat="identity") + scale_fill_brewer(palette = "Blues") + labs(title = "Distribution of Ratings by Review", y = "Count of Reviews", x = "Star Category") + theme(legend.position="none")
+```
+
+The dataset includes total `r tot.review` reviews between `r min.date` and `r max.date`. 
+
+The distribution of review ratings is considerably skewed. According to the data, users leave reviews that they would like to give the rate of 5 than ratings that are less than 5. We could say that people seem to review things they like. In general, people seem to be more likely to write a review for a extreme positive experience than a negative one. 
+
+
+#### By Business
+
+```{r q2_busines, echo=FALSE}
+
+tot.business <- business[, .N]
+mean.business <- business[, round(mean(stars), digits = 2)]
+median.business <- business[, round(median(stars), digits = 2)]
+
+review_ratings <- business %>% group_by(stars) %>% count()
+highest.num.star <- review_ratings[[2]][6]
+  
+ggplot(data=review_ratings, aes(x=stars, y=n)) + geom_bar(stat="identity") + scale_fill_brewer(palette = "Blues") + labs(title = "Distribution of Ratings by Business", y = "Count of Reviews", x = "Star Category") + theme(legend.position="none")
+
+```
+
+Although many users like to write reviews with high review ratings, we found that most businesses had star ratings of 3.5 (`r highest.num.star` count of businesses). On average, businesses had `r mean.business` star ratings and median of `r median.business` star ratings. 
+
+
+#### By User
+
+```{r q2_user, echo=FALSE}
+review_ratings <- user %>% group_by(average_stars) %>% count()
+review_ratings <- as.data.table(review_ratings)
+avg.rating.range <- cut2(x = review_ratings$average_stars, c(0,0.9,1.9,2.9,3.9,5))
+review_ratings[, avg_ratings := avg.rating.range]
+
+mean.user <- user[, round(mean(review_count), digits = 2)]
+median.user <- user[, round(median(review_count), digits = 2)]
+sd.user <- user[, round(sd(review_count), digits = 1)]
+
+avg.star.user <- user[, round(mean(average_stars), digits = 2)]
+median.star.user <- user[, round(median(average_stars), digits = 2)]
+sd.star.user <- user[, round(sd(average_stars), digits = 2)]
+
+ggplot(data=review_ratings, aes(x=avg_ratings, y=n)) + geom_bar(stat="identity") + scale_fill_brewer(palette = "Blues") + labs(title = "Distribution of Ratings by User", y = "Count of Reviews", x = "Average Stars") + theme(legend.position="none")
+```
+
+The ratings given by the users align with the previous distributions and findings, which the users like to write reviews that they had positive experience. The average number of reviews that the users wrote was `r mean.user` and median number of reviews was `r median.user`, with standard deviation of `r sd.user`. In addition, on average, users gave `r avg.star.user` ratings to the businesses, with median of `r median.star.user` and standard deviation of `r sd.star.user`. 
+
+### Q3: Number of Reviews {.tabset}
+
+#### Most Reviews
+
+```{r q3_Most Reviews, echo=FALSE}
+top.buz.review <- business
+setorderv(x = top.buz.review, cols = "review_count", order = -1)
+top5 <- top.buz.review[, c('name', 'review_count', 'stars', 'categories', 'city', 'state')][1:5]
+datatable(top5)
+
+```
+
+
+#### Highest Ratings
+
+```{r q3_Highest Ratings, echo=FALSE}
+higest.review <- top.buz.review[stars==5, c('name', 'review_count', 'stars', 'categories', 'city', 'state')][1:5]
+datatable(higest.review)
+
+```
+
+
+
+## Part 2:Relationship b/t Location & Number of Reviews {.tabset}
+
+### Q5:relationship between reviews and business location
+Based on the number of reviews in businesses, the visualization shows the distribution of locations. 
+```{r relationship of reviews and business reviews,echo=FALSE}
+#library(FSA)
+
+#headtail(business,3)
+head(business,3)
+states = unique(business$state)
+reviews_count = data.frame(state = states,counts = 1:length(states))
+
+for (i in 1:length(states)) {
+  data = filter(.data = business, state == states[i])
+  reviews_count[i,2] = sum(data$review_count,na.rm = T)
+}
+reviews_count = reviews_count[order(reviews_count$counts,decreasing = T),]
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+#The histogram shows there were more reviews in the three states, Arizona, Nevada and Ontario. 
+
+barplot(reviews_count$counts, names.arg = reviews_count$state, 
+        ylim = c(0,1.1*max(reviews_count$counts)), xlab = 'state', ylab = 'reviews counts')
+
+colors = data.frame(state = state.abb,color = rep(0,50))
+for (value in reviews_count$state) {
+  colors[colors$state == value,2] = reviews_count[reviews_count$state == value,2]
+}
+colors$color = ceiling(colors$color/max(colors$color)*3)
+library(maps)
+
+#Green Spots shows most of the businesses are located in south and east side; and I found the number of reviews is negatively correlated with latitude and the positively correlated with latitude.
+map('state', panel.first=grid())
+axis(1,lwd=0)
+axis(2,lwd=0)
+axis(3,lwd=0)
+axis(4,lwd=0)
+box()
+colors = vector()
+for (value in business$state) {
+  if(value %in%state.abb) {
+    colors = append(colors,1)
+  }else{
+    colors = append(colors,0) 
+  }  
+}
+points(business$longitude,business$latitude,col = colors+2,pch=15)
+legend('bottomright',legend = c('Canada','America'),pch = c(15,15),col = c(2,3))
+
+print('Distributions of locations and reviews.')
+#The number of reviews is negatively correlated with latitude and positively correlated with longitude.
+
+###linear  regression
+hist(business$review_count,freq=FALSE)##not norm distribution
+#lines(density(business$review_count),col = 'red')
+fit.full = glm(review_count ~ latitude + longitude,
+           data=business,family=Gamma(link = "inverse"))
+
+##GLM model gamma distribution
+summary(fit.full)
+```
+The regression models for review number, longitude, latitude and states. Since the comment mode does not conform to the normal distribution, the data is processed logarithmically to satisfy the assumption of normal distribution. A regression model was established for the processed data, and it was found that there were more reviews in the three states, Arizona, Nevada and Ontario respectively. The number of reviews is negatively correlated with latitude and positively correlated with longitude.
+
+
+## Part 3:  Performance Diagnosis {.tabset}
+In the phase of reopening, this is a crucial moment to help businesses get back on track. We offer performance diagnosis through three different aspects all gathered from the review dataset on Yelp. We offer three criterias for business consulting, which are star rating fluctuations, sentimental analysis and keyword analysis. 
+
+### Q1: Sentiment Analysis {.tabset}
+
+#### Review Summary
+
+```{r p2_q1_Summary,echo = FALSE}
+"mean number of characters in the each review: "
+mean_char = mean(nchar(review$text))
+mean_char
+
+"Mean Words across all reviews: "
+mean_words = mean(str_count(string = review$text,pattern = '\\S+'))
+mean_words
+
+"medium number of characters in the each review: "
+median_char = median(nchar(review$text))
+median_char
+
+"median Words across all reviews: "
+median_words = median(str_count(string = review$text,pattern = '\\S+'))
+median_words
+
+
+
+```
+
+#### Bing lexicon
+
+The Bing lexicon categorizes words as being positive and negative. The proportion of positive review is one way to determine business overall performance. If the proportion of negative reviews is larger than a certain threshold (30% for example), it means that the business is performing poorly on customer satisfaction. It is important to analyze the most frequent topic in negative reviews and take actions to improve it as soon as possible. The effect of the actions could also be tested by the proportion of positive reviews. If the proportion of positive reviews increases, then actions are working to some extent. 
+
+
+```{r p2_q1_Bing,echo = FALSE}
+#Binary Sentiment (positive/negative) Lexicons
+
+review%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)
+
+#Positive and Negative Words in Reviews
+"Count and Proportion of Positive and Negative Words in Reviews"
+#review %>%
+#  select(review_id,text)%>%
+#  unnest_tokens(output=word,input=text)%>%
+#  inner_join(get_sentiments('bing'))%>%
+#  group_by(sentiment)%>%
+#  summarize(n = n())%>%
+#  mutate(proportion = n/sum(n))
+
+# Visualization
+review%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  count()%>%
+  ggplot(aes(x=sentiment,y=n,fill=sentiment))+
+  geom_col()+theme_economist()+guides(fill=F)+
+  geom_bar(position='dodge',stat='identity',fill=c('darkred','red'))+
+  coord_flip()
+
+
+
+```
+
+
+#### NRC lexicon
+
+A word may reflect more than just valence. The ‘nrc’ lexicon categorizes words by emotion. NRC lexicon could help businesses understand the reviews overall feeling in detail other than just good or bad. Negative feelings could be anger or sadness. But these two feelings convey slightly different insights. For example, anger may be caused by the catering service. And sadness may be caused by the taste of food. This is only a preliminary analysis and further modeling and analysis is required to find the roots of issues. 
+
+
+```{r p2_q1_NRC,echo = FALSE}
+#Emotions in Reviews
+library(tidytext)
+nrc = get_sentiments('nrc')
+
+review%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(sentiment)%>%
+  count()
+
+# Visualization
+review%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(sentiment)%>%
+  count()%>%
+  ggplot(aes(x=reorder(sentiment,X = n),y=n,fill=sentiment))+
+         geom_col()+guides(fill=F)+coord_flip()+theme_wsj()
+
+```
+
+
+#### AFINN lexicon
+
+AFINN lexicon assigns scores words on the extent to which they are positive or negative. AFINN lexicon could score the positiveness of reviews by numbers. 
+
+
+```{r p2_q1_AFINN,echo = FALSE}
+afinn = get_sentiments('afinn')
+review %>%
+  select(review_id,text)%>%
+  unnest_tokens(output=word,input=text)%>%
+  inner_join(afinn)%>%
+  group_by(review_id)%>%
+  summarize(reviewSentiment = mean(value))%>%
+  ungroup()%>%
+  summarize(min=min(reviewSentiment),max=max(reviewSentiment),
+            median=median(reviewSentiment),mean=mean(reviewSentiment))
+
+review %>%
+  select(review_id,text)%>%
+  unnest_tokens(output=word,input=text)%>%
+  inner_join(afinn)%>%
+  group_by(review_id)%>%
+  summarize(reviewSentiment = mean(value))%>%
+  ungroup()%>%
+  ggplot(aes(x=reviewSentiment,fill=reviewSentiment>0))+
+  geom_histogram(binwidth = 0.1)+
+  scale_x_continuous(breaks=seq(-5,5,1))+scale_fill_manual(values=c('tomato','seagreen'))+
+  guides(fill=F)+
+  theme_wsj()
+
+```
+
+### Q2: Text Mining {.tabset}
+
+We used text mining to do keyword analysis and gather more hints other than just sentiments. Our dashboard is capable of text preparation, which includes creating corpus, converting to lowercase, removing punctuation, special symbols, stop words, white space and stem documents.
+
+#### Word Frequency
+Most frequent words could show the attributes that are valued by the reviewers and help business to improve their performance. 
+
+```{r p2_q2_frequency, echo = FALSE}
+#top 10 most frequent words after removing stop words for reviews 
+library(dplyr)
+library(tidytext)
+
+review%>%
+  unnest_tokens(input = text, output = word)%>%
+  select(word)%>%
+  anti_join(stop_words)%>%
+  group_by(word)%>%
+  summarize(count = n())%>%
+  ungroup()%>%
+  arrange(desc(count))%>%
+  top_n(10)
+
+#visualization
+library(ggplot2)
+review%>%
+  unnest_tokens(input = text, output = word)%>%
+  select(word)%>%
+  anti_join(stop_words)%>%
+  group_by(word)%>%
+  summarize(count = n())%>%
+  ungroup()%>%
+  arrange(desc(count))%>%
+  top_n(25)%>%
+  ggplot(aes(x=reorder(word,count), y=count, fill=count))+
+  geom_col()+
+  xlab('words')+
+  ggtitle("Top 10 Frequent Words in Reviews")+
+  coord_flip()
+
+```
+
+#### Data Preparation
+
+* Create a corpus
+* Convert to lower case
+* Remove urls, punctuation
+* Remove stopwords
+* Strip white space
+* Stem documents
+
+```{r p2_q2_data_preparation}
+### Create a corpus
+library(tm)
+corpus = Corpus(VectorSource(review$text))
+
+### Clean text
+#convert to lower case
+corpus = tm_map(corpus,FUN = content_transformer(tolower))
+
+#remove urls
+corpus = tm_map(corpus,
+                FUN = content_transformer(function(x)gsub(pattern = 'http[[:alnum:][:punct:]]*',                                                             replacement = ' ',x = x)))
+
+#remove punctuation
+corpus = tm_map(corpus,FUN = removePunctuation)
+
+#remove stopwords
+corpus = tm_map(corpus,FUN = removeWords,c(stopwords('english')))
+
+#remove whitespace
+corpus = tm_map(corpus,FUN = stripWhitespace)
+
+### Create a dictionary
+dict = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(review$text))),lowfreq = 0)
+dict_corpus = Corpus(VectorSource(dict))
+
+### Stem document
+corpus = tm_map(corpus,FUN = stemDocument)
+
+### Create a document term matrix (tokenize)
+dtm = DocumentTermMatrix(corpus)
+
+### Remove Sparse Terms
+xdtm = removeSparseTerms(dtm,sparse = 0.95)
+
+### Complete Stems
+xdtm = as.data.frame(as.matrix(xdtm))
+colnames(xdtm) = stemCompletion(x = colnames(xdtm),
+                                dictionary = dict_corpus,
+                                type='prevalent')
+colnames(xdtm) = make.names(colnames(xdtm))
+
+### Document Term Matrix - tfidf
+dtm_tfidf = DocumentTermMatrix(x=corpus,
+                               control = list(weighting=function(x) weightTfIdf(x,normalize=F)))
+xdtm_tfidf = removeSparseTerms(dtm_tfidf,sparse = 0.95)
+xdtm_tfidf = as.data.frame(as.matrix(xdtm_tfidf))
+colnames(xdtm_tfidf) = stemCompletion(x = colnames(xdtm_tfidf),
+                                      dictionary = dict_corpus,
+                                      type='prevalent')
+colnames(xdtm_tfidf) = make.names(colnames(xdtm_tfidf))
+sort(colSums(xdtm_tfidf),decreasing = T)
+
+### Document Term Matrix: Term Frequency vs. Term Frequency Inverse Document Frequency
+library(tidyr); library(dplyr); library(ggplot2); library(ggthemes)
+data.frame(term = colnames(xdtm),tf = colMeans(xdtm), tfidf = colMeans(xdtm_tfidf))%>%
+  arrange(desc(tf))%>%
+  top_n(20)%>%
+  gather(key=weighting_method,value=weight,2:3)%>%
+  ggplot(aes(x=term,y=weight,fill=weighting_method))+
+  geom_col(position='dodge')+
+  coord_flip()+
+  theme_economist()
+
+
+```
+
+
+#### Predictive Models (using TF features)
+
+```{r p2_q2_predict,echo = FALSE}
+
+xdtm_tfidf <- xdtm_tfidf[, !duplicated(colnames(xdtm_tfidf))]
+
+review_tfidf = cbind(review_rating = review$stars,xdtm_tfidf)
+
+set.seed(617)
+split = sample(1:nrow(review_tfidf),size = 0.7*nrow(review_tfidf))
+train = review_tfidf[split,]
+test = review_tfidf[-split,]
+
+### CART
+reg = lm(review_rating~.,train)
+summary(reg)
+
+pred_reg = predict(reg, newdata=test)
+rmse_reg = sqrt(mean((pred_reg-test$review_rating)^2)); rmse_reg
+
+```
+
+### Q3: Time Series {.tabset}
+
+We could use star ratings fluctuation over a period of time to analyze the general performance and obtain trends or patterns. We could set a threshold of 4 out of 5 stars. If the star ratings are above 4, it means that business operation is comparatively successful. If the rating is less than 4, it shows improvement needs to be made.
+
+#### Star Rating Fluctuation 
+
+Here we chose the business_id which have max review counts as an example. And the graph shows the star rating of this business from "2005-03-14" to "2019-12-13". 
+
+```{r p2_q3_star,echo = FALSE}
+# convert date column to date class
+review$date <- as.Date(review$date)
+
+#range(businesDat$date)
+# date range: "2005-03-14" to "2019-12-13"
+
+#group star ratings and date by business_id and do time-series on the business with max count of reviews
+businesDat <- review[,.(stars=stars,date = date), by = "business_id"]
+businesDat[,count:= .N, by = "business_id"]
+
+#which.max(businesDat$count) 
+"buisness with index 65576 and business_id = Cni2l-VKG_pdospJ6xliXQ have max review count: 2731"
+
+#max(businesDat$count)
+
+
+timeSeriesDate <- businesDat[business_id == "Cni2l-VKG_pdospJ6xliXQ",.(stars = stars, date = date)]
+
+# quickly plot the data and include a title using main = ""
+# use '\n' to force the string to wrap onto a new line
+library(ggplot2)
+ggplot(data = timeSeriesDate, aes(x = date, y = stars)) +
+      geom_bar(stat = "identity", fill = "red") +
+      labs(title = "Star Ratings",
+           subtitle = "business_id: Cni2l-VKG_pdospJ6xliXQ",
+           x = "Date", y = "Star Ratings (out of 5 stars)")
+
+
+
+```
+
+#### Time Series Pattern
+
+```{r p2_q3_Pattern,echo = FALSE}
+library(tseries) # for a statistical test
+
+#Create a ts object
+starRating_ts = ts(data=timeSeriesDate$stars,start =2005 ,end =2019, frequency = 12)
+starRating_ts
+autoplot(starRating_ts)
+
+
+```
+
+#### Simple Forecasting Model
+
+```{r p2_q3_Simple_Forecasting,echo = FALSE}
+
+starRating_ts2 = ts(data=timeSeriesDate$stars,start =2005 ,end =2019, frequency = 4)
+starRating_ts2
+
+library(fpp2)
+
+train = window(starRating_ts2,end=c(2019))
+test = window(starRating_ts2,start =c(2005))
+#average method
+average_model = meanf(train,h = 42)
+average_model
+
+average_model$mean
+
+#window(average_model$mean,c(2010,02))
+
+#Accuracy
+accuracy(average_model)
+
+
+autoplot(train)+
+  autolayer(average_model,PI = F,size=1.1,series = 'Average Model')+
+  autolayer(test)
+
+```
+
+#### Exponential Smoothing Models:Simple exponential smoothing
+
+Forecasts are weighted averages of past observations with the weights decaying exponentially such that recent observations get weighted more than distant observations.
+
+* Forecasts are calculated using weighted averages, where the weights decrease exponentially. Most recent observations get the heaviest weight.
+
+* Simplest of exponential smoothing methods
+
+* Suitable for forecasting data with no clear trend or seasonal pattern.
+
+```{r p2_q3_Exponential, echo = FALSE}
+"Simple exponential smoothing"
+ses_model = ses(train,h = 42)
+ses_model$mean
+
+"Holt’s Method: Extends simple exponential smoothing to allow the forecasting of data with a trend"
+holt_damped_model = holt(train,h=42,damped = T)
+holt_damped_model$mean
+
+autoplot(train)+
+  autolayer(ses_model,series = "Simple Exponential Smoothing",PI = F, size=1.1)+
+  autolayer(holt_damped_model,series="Holt's Method",PI=F,size=1.1)+
+  autolayer(test)
+```
+
+
+#### ETS: AAA
+ETS models in R are handled by ets() from library(forecast). Unlike functions such as naive(), ses(), hw() functions, the ets() function does not produce forecasts. Rather, it estimates the model parameters and returns information on the fitted model.
+
+```{r p2_q3_ETS, echo = FALSE}
+ets_aaa = ets(train,model = 'AAA')
+
+coef(ets_aaa)
+
+summary(ets_aaa)
+
+#Examine the residuals.
+#Based on the ACF plot and a significant Ljung-Box test, residuals are not like white noise.
+checkresiduals(ets_aaa)
+
+#Forecast
+ets_aaa_forecast = forecast(ets_aaa,h=42)
+ets_aaa_forecast
+
+
+#accuracy(ets_aaa_forecast,x = starRating_ts)
+
+autoplot(train)+
+  autolayer(ets_aaa_forecast,series="ETS - AAA",PI=F)+
+  autolayer(test)
+
+```
+
+### Q4: Recommender System {.tabset}
+Due to size of dataset, we choose business_id with top 10 review counts as an example to create recommend system. 
+```{r p2_q4_Recommender,echo = FALSE}
+recomDat <- review[,.(user_id=user_id, stars = stars), by = "business_id"]
+recomDat[,count:= .N, by = "business_id"]
+recomDat <- recomDat[order(-count)]
+#unique(recomDat$count)
+recomDatSub <- recomDat[count >= 989,.(business_id=business_id,user_id=user_id,stars=stars)]
+
+library(recommenderlab)
+data_matrix = as(recomDatSub,Class = 'realRatingMatrix')
+#as(data_matrix,'matrix')
+
+```
+
+#### Non-Personalized Recommendation System
+The chart shows top business_id recommendation for each viewer_id. 
+```{r p2_q4_Non-Personalized,echo = FALSE, message= FALSE}
+recommenderRegistry$get_entry("POPULAR", type ="realRatingMatrix")
+
+recom = Recommender(data_matrix,method='POPULAR',parameter = list(normalize=NULL))
+pred = predict(recom,data_matrix)
+as(pred,'matrix')
+
+"top business_id recommendation for each viewer_id"
+pred = predict(recom,data_matrix,n=1) 
+getList(pred)
+
+```
+
+
+#### User-based Collaborative Filtering
+
+Use cosine similarity measure, set nearest neighbors to 2, and normialize with Z-score. The charts show business_id recommend for each reviewer_id based on their preference and a prediction score on how much reviewer_id would like the recommendation.
+
+```{r p2_q4_User-based,echo = FALSE,message= FALSE}
+recommenderRegistry$get_entry(method='UBCF', type ='realRatingMatrix')
+recom = Recommender(data_matrix,method='UBCF',parameter=list(method='Cosine',
+                                                             nn=2,normalize='Z-score'))
+pred = predict(recom,data_matrix,type = 'ratingMatrix')
+as(pred,'matrix')
+
+pred = predict(recom, data_matrix, n = 1) 
+#getList(pred) 
+
+#getRatings(pred)  # how much would the user like it
+
+# putting it all together 
+recomTable = as.data.frame(mapply(c,getList(pred),getRatings(pred),as.list(rowMeans(data_matrix))))
+
+recomTable$business_id <- c("reviewer_id","predictive likeness score" , "average rating")
+
+recomTable <- recomTable %>%
+  select(business_id, everything())
+
+recomTable
+
+```
+
+####  Item-based Collaborative Filtering
+
+```{r p2_q4_Item-based,eval = FALSE}
+recommenderRegistry$get_entry(method='IBCF', type ='realRatingMatrix')
+recom = Recommender(data_matrix,method='IBCF',parameter=list(k=3,method='Cosine',normalize='Z-score'))
+
+pred = predict(recom,data_matrix,type = 'ratingMatrix')
+as(pred,'matrix')
+
+pred = predict(recom, data_matrix, n = 1) 
+#getList(pred) 
+
+recomTable2 =as.data.frame(mapply(c,getList(pred),getRatings(pred),as.list(rowMeans(data_matrix))))
+
+recomTable2$reviewer_id<- c("business_id","predictive likeness score", "average rating")
+
+recomTable2 <- recomTable2 %>%
+  select(reviewer_id, everything())
+
+recomTable2
+
+```
+
+#### Hybrid Recommender
+
+```{r p2_q4_Hybrid,eval = FALSE}
+rec_pop = Recommender(data_matrix, 'POPULAR',parameter = list(normalize=NULL))
+rec_ub = Recommender(data_matrix,'UBCF',parameter=list(method='Cosine',nn=2,normalize='Z-score'))
+rec_ib = Recommender(data_matrix, 'IBCF',parameter=list(k=3,method='Cosine',normalize='Z-score'))
+#Save recommender models for later so we do not have to rebuild them
+save(rec_pop, rec_ub, rec_ib, file = "models.rda")
+# Load models
+load("models.rda")
+
+pred_pop = predict(rec_pop, data_matrix[1,], type = "ratingMatrix")
+pred_ub  = predict(rec_ub, data_matrix[1,], type = "ratingMatrix")
+pred_ib  = predict(rec_ib, data_matrix[1,], type = "ratingMatrix")
+as(pred_pop,'list')
+
+pred_hybrid = rbind(
+  as(pred_pop, 'matrix'),
+  as(pred_ub,'matrix'),
+  as(pred_ib, 'matrix'))
+pred_hybrid
+
+
+#Create a top-N list from the aggregated rating
+pred <- getTopNLists(as(rbind(pred_hybrid), "realRatingMatrix"))
+as(pred, 'list')
+
+```
+
+
+
+
+## Part 4: Understanding users comments and ratings {.tabset}
+
+
+#### relationship among review count, keywords and fans
+correlation map:
+we can see that useful, funny and cool have a high correlation. 
+Users are inclined to use keywords like "funny", "cool" "useful" at the same time,
+Users who comment with "useful" are more likely to have fans those who comment with "funny", "cool".
+```{r cars}
+user
+corrplot.mixed(corr = cor(user[,c("review_count","useful","funny","cool","fans"),with=F]),
+               lower="number",upper="ellipse")
+```
+Comparing to review_count, the number of fans of each user is more closely related to variables "useful","funny","cool"
+
+
+```{r cars}
+corrplot.mixed(corr = cor(user[,c("review_count","fans","compliment_hot","compliment_more","compliment_profile",
+                                  "compliment_cute","compliment_list","compliment_note","compliment_plain",
+                                  "compliment_cool", "compliment_funny","compliment_writer","compliment_photos"),with=F]),
+               lower="number",upper="ellipse")
+```
+
+```{r pressure_1, echo=FALSE}
+ggplot(user[,.("fans"=max(fans),"review_count"=max(review_count)),by=user_id],
+       aes(review_count,fans,colour=review_count,size=review_count))+
+  geom_jitter()+geom_smooth()+guides(fill="none")+
+  labs(caption="Donyoe",title="review count vs fans")+
+  theme(legend.position = "none")
+```
+fans vs review count, useful :
+Based on the line chart, the increase in review count would result in higher review at the beginning, but too much reviews are not good for gaining more fans, it's better to limit comment count within 10000. 
+
+
+```{r pressure_2, echo=FALSE}
+ggplot(user[,.("fans"=max(fans),"useful"=max(useful)),by=user_id],
+       aes(useful,fans,colour=fans,size=fans))+
+  geom_jitter()+geom_smooth()+guides(fill="none")+
+  labs(caption="Donyoe",title="usefel vs fans")+
+  theme(legend.position = "none")
+```
+Obviously, using the keyword "useful" is much easier to gain fans than commenting other content, or showing up frequently in the 
+reviewing area. Which means this keyword delivers higher information quality. 
+
+
+
+#### Q2 relationship among average_stars and compliment key words
+
+```{r pressure_3, echo=FALSE,eval = FALSE}
+user0<-user[,c(13:23)]
+corrplot.mixed(corr = cor(user0),lower="number",upper="color")
+```
+
+A coefficient of 0 means that the 2 variables show no linear relationship, a coefficient between (0,1] shows that they have positive relationship and a coefficient between [-1,0) means they have a negative relationship. We’re particularly interested in variables that show strong relationships, so we will focus primarily on features that have a coefficient > .5 or < -.5. Compliments with "cool", "funny", "writer", "photos" have closer relationship among each other. and "more", "profile","cute","list"are closely related. 
+
+
+
+```{r pressure_4, echo=FALSE}
+
+pairs(~average_stars+compliment_hot+compliment_profile+
+        compliment_cute+compliment_cool+compliment_funny+
+        compliment_photos,data=user, 
+      col = c("pink", "cornflowerblue", "blue"))
+
+```
+From the pair plot, most of the relationships appear to be nonlinear, except that "cool" and "funny" are strong linear relationship. So applying nonlinear regression models and regression trees for predicting average_stars would be tangible.
+
+
+
+### Explore the relationship between average_stars and other variables {.tabset}
+```{r pressure_5, echo=FALSE}
+set.seed(123)
+user1<-user[,c(12:17,20:23)]
+user1<-user1[c(1:3000),]
+
+split = sample(1:nrow(user1),0.7*nrow(user1))
+train = user1[split,]
+test = user1[-split,]
+head(train)
+
+x_train = model.matrix(compliment_hot~.,data=train)
+y_train = train$average_stars
+x_test = model.matrix(compliment_hot~.,data=test)
+y_test = test$average_stars
+set.seed(0)
+```
+
+
+#### Apply Linear Regression Model 
+```{r RIDGE_MODEL, echo=FALSE}
+
+linear_model = lm(average_stars~compliment_photos+compliment_writer+compliment_funny+compliment_cool+compliment_list+
+                  compliment_cute+compliment_profile+compliment_more+compliment_hot, data=train)
+summary(linear_model)
+confint(linear_model)
+anova(linear_model)
+
+```
+
+The Adjusted R-squared is -0.001683, indicating that the general quality of the model is low.
+F statistics tells us that the p-value is larger than 0.1, indicating that the model is insignificant.
+Looking at each variables, the CI (confidence interval) is 97.5%, the alpha level would be 2.5%. However, the p-value of all the variable is higher than 0.025, which means the coefficient of these variables are insignificant. 
+To conclude, these variables are not appropriate predict user's average stars. 
+
+
+
+### Explore the relationship between fans and other variables {.tabset}
+```{r pressure_5, echo=FALSE}
+set.seed(123)
+user2<-user[,c(4,6:8,11,13:17,20:23)]
+user2<-user2[c(1:5000),]
+
+split = sample(1:nrow(user2),0.7*nrow(user2))
+train2 = user2[split,]
+test2 = user2[-split,]
+head(train2)
+
+x_train2 = model.matrix(review_count~.,data=train2)[,-c(5)]
+y_train2 = train2$fans
+x_test2 = model.matrix(review_count~.,data=test2)[,-c(5)]
+y_test2 = test2$fans
+set.seed(0)
+```
+
+
+#### Apply Linear Regression Model 
+```{r RIDGE_MODEL, echo=FALSE}
+linear_model = lm(fans~review_count+useful+funny+cool+compliment_photos+compliment_writer+
+                  compliment_funny+compliment_cool+compliment_list+compliment_cute+
+                  compliment_profile+compliment_more+compliment_hot, data=train2)
+summary(linear_model)
+anova(linear_model)
+```
+In the linear regression models summary, the F-statistic means that the P-value is extremely close to zero, 
+indicating the model is statistically significant.
+The adjusted R squared indicates that the model quality is generally high, which is 88.78%
+Specifically, the coefficient of all the independent variables are highly significant. 
+
+
+#### Q1 Feature Selection with Ridge Model  
+```{r RIDGE_MODEL, echo=FALSE}
+ridge_Model = glmnet(x_train2,y_train2,alpha= 0,lamba=grid)
+summary(ridge_Model)
+plot(ridge_Model,xvar='lambda',label=T)
+cv.ridge = cv.glmnet(x_train2,y_train2,standardize=TRUE,nfolds=20, alpha= 0) # default is 10-fold cross validation
+plot(cv.ridge)
+
+optimal_lambda <- cv.ridge$lambda.min
+optimal_lambda
+```
+
+
+```{r RIDGE_MODEL, echo=FALSE}
+optimal_lambda <- cv.ridge$lambda.min
+optimal_lambda
+```
+
+
+```{r RIDGE MODEL RMSE PLOT, echo=FALSE, warning=FALSE}
+out = glmnet(x_train2, y_train2, alpha = 0) # Fit ridge regression model on train dataset
+predict(out, type = "coefficients", s = optimal_lambda)[1:14,] # Display coefficients using lambda chosen by CVf
+```
+
+
+
+
+#### Q2 Lasso model
+
+```{r LASSO_MODEL, echo=FALSE}
+lasso_Model = glmnet(x_train2,y_train2, alpha=1,lamba=grid) # Note default for alpha is 1 which corresponds to Lasso
+summary(lasso_Model)
+#plot(lasso_Model,xvar='lambda',label=T)
+# perform k-fold cross validation to find optimal lambda value 
+cv.lasso = cv.glmnet(x_train2,y_train2,alpha=1) # 10-fold cross-validation
+best_lambda <-cv.lasso$lambda.min
+best_lambda
+plot(cv.lasso)
+```
+
+The plot shows that 12 most significant variables should be selected to minimize the MSE. 
+
+
+```{r lasso_Model RMSE, echo=FALSE, warning=FALSE}
+eval_results <- function(true, predicted, df) {
+  SSE <- sum((predicted - true)^2)
+  SST <- sum((true - mean(true))^2)
+  R_square <- 1 - SSE / SST
+  RMSE = sqrt(SSE/nrow(df))
+  # Model performance metric
+  data.frame(RMSE = RMSE,
+             Rsquare = R_square)}
+
+# Prediction and evaluation on test data
+predictions_test <- predict(lasso_Model, s = best_lambda, newx = x_test2)
+eval_results(y_test2, predictions_test, test2)
+```
+
+
+```{r lasso_Model RMSE, echo=FALSE, warning=FALSE}
+out = glmnet(x_train2, y_train2, alpha = 1) # Fit lasso model on train dataset
+lasso_coef = predict(out, type = "coefficients", s = best_lambda)[1:14,] # Display coefficients using lambda chosen by CV
+lasso_coef
+```
+
+
+```{r lasso_Model RMSE, echo=FALSE, warning=FALSE}
+lasso_coef[abs(lasso_coef) !=0]
+lasso_coef[abs(lasso_coef) >0.00001]
+```
+We found that even lasso pushes coefficients to zero, but it fails to perform feature selection because none of the coefficients of the variables is zero. However, we could still identify the 12 most influential variables by comparing its significance level. The coefficient of compliment_funny is the closest to 0, so we would remove this feature from the model to reduce the model complexity.
+
+
+
+#### Q3 Random Forest 
+```{r pressure_5, echo=FALSE}
+set.seed(123)
+user2<-user[,c(4,6:8,11,13:17,20,22,23)]
+user2<-user2[c(1:5000),]
+
+split = sample(1:nrow(user2),0.7*nrow(user2))
+train2 = user2[split,]
+test2 = user2[-split,]
+head(train2)
+
+x_train2 = model.matrix(review_count~.,data=train2)[,-c(5)]
+y_train2 = train2$fans
+x_test2 = model.matrix(review_count~.,data=test2)[,-c(5)]
+y_test2 = test2$fans
+set.seed(0)
+```
+
+
+```{r RF, echo=FALSE}
+rf_model0 <- randomForest(fans ~ ., data = train2, importance=TRUE)
+```
+
+```{r RF PLOT, echo=FALSE}
+
+rf_model0
+which.min(rf_model0$mse)
+
+# RMSE of this optimal random forest
+sqrt(rf_model0$mse[which.min(rf_model0$mse)])
+plot(rf_model0)
+summary(rf_model0)
+
+```
+
+
+
+```{r predict, echo=FALSE}
+pred_randomForest <- predict(rf_model0, test2)
+```
+
+
+
+### Q3 K-Means Clustering
+
+#### Determine optimal clusters with elbow method
+```{r clustering, echo=FALSE}
+user2<-user[,c(3,4,6:8,11,13:17,20,22,23)]
+user2<-na.omit(user2)
+user2<-user2[!duplicated(user2$name),]
+nrow(user2)
+unique(user2[,1])
+length(unique(user2[,1]))==nrow(user2)
+#rownames(user2)<-user2[,1] #Assigning row names from 1st column
+#rownames(user2)<-user[,3]
+#user2[,1] <- NULL #Removing the first column
+```
+
+
+
+```{r clustering, echo=FALSE}
+#length(unique(user2[,1]))==nrow(user2)
+#rownames(user2)<-user2[,1] #Assigning row names from 1st column
+#rownames(user2)<-user[,3]
+user3<-user2[,-1]
+user3
+#user2[,1] <- NULL #Removing the first column
+```
+
+```{r clustering_rownames, echo=FALSE}
+#length(unique(user2[,1]))==nrow(user2)
+#rownames(user2)<-user2[,1] #Assigning row names from 1st column
+row.names(user3)<-user2$name
+#user2[,1] <- NULL #Removing the first column
+user3
+```
+
+
+```{r clustering_clusters, echo=FALSE}
+# Determine number of clusters
+wss <- (nrow(user3)-1)*sum(apply(user3,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(user3,centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+  ylab="Within groups sum of squares")
+```
+
+Plotting the within group sum of squares, the sharp decreases from 1 to  clusters suggests a 3-cluster solution. 
+
+
+```{r clustering_stats, echo=FALSE}
+user3<-scale(user3)
+install.packages('NBClust')
+library('NbClust')
+set.seed(100)
+devAskNewPage(ask=TRUE)
+nc<-NbClust(user3,min.nc=2, max.nc=20, method="kmeans")
+barplot(table(nc$Best.n[1,]),
+        xlab="number of clusters", ylab="number of criteria",
+        main="number of clusters chosen by 26 criteria")
+```
+
+
+
+
+```{r clustering_plots to compare, echo=FALSE}
+
+k3 <- kmeans(user3, centers = 3, nstart = 25)
+k4 <- kmeans(user3, centers = 4, nstart = 25)
+k5 <- kmeans(user3, centers = 5, nstart = 25)
+
+# plots to compare
+p1 <- fviz_cluster(k3, geom = "point",  data = user3) + ggtitle("k = 3")
+p2 <- fviz_cluster(k4, geom = "point",  data = user3) + ggtitle("k = 4")
+p3 <- fviz_cluster(k5, geom = "point",  data = user3) + ggtitle("k = 5")
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, nrow = 2)
+
+
+p1
+p2
+p3
+```
+Although this visual assessment doesn't tell us what the optimal number of clusters is. But it does tell us where true delineations occur between clusters. 
+
+```{r clustering_centers_4, echo=FALSE}
+
+set.seed(200)
+
+cluster<- kmeans(user3, 4, nstart=25)
+cluster$centers
+cluster
+
+fviz_cluster(cluster, data = user3)
+```
+
+
+```{r clustering_centers, echo=FALSE}
+
+set.seed(200)
+
+cluster<- kmeans(user3, 3, nstart=25)
+```
+
+
+```{r clustering_result, echo=FALSE}
+cluster
+```
+The cluster result suggests that most users are in cluster3, which are not active on the yelp community. They barely leave comments with these keywords, or compliment with photos. By contrast, 50 customers are from cluster 1, they are more active, and have much more fans than group 3 customers. Only 1 user is in cluster 2, which has the highest number of fans, and they are extremely active. By observing cluster 1 and cluster 2, we notice that users extremely likes complimenting with photos. 
+
+
+
+```{r clustering_viz, echo=FALSE}
+fviz_cluster(cluster, data = user3)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Part 5:Clear descriptions of the problems solved {.tabset}
+
+The digital advertising industry has become saturated with low barriers to entry and rising competition. Although Yelp has a unique business model, in which it partners with local businesses and promotes communication between the small business owners and customers, it faces challenges as it constantly needs to manage content providers, partners, and relationships between local businesses and users. In order to effectively manage its business, provide valuable information to users, and maximize revenue, it should analyze the data and use the insights for content marketing, sales, and business development. With our analysis on the market trends, customers sentiments, and relationships between the popularity and geo-spatial data of business locations, Yelp will be able to maintain its leadership within the industry. 
+
+
+
+1. Inaccurate ratings: The Yelp application has been complained for delivering inaccurate review ratings for a long period of time. The way Yelp calculates the overall rating of all the businesses need to be optimized. We find that applying machine learning models on keywords extracted from comments might help deliver higher quality ratings.
+
+     we used machine learning models for star_rating prediction with different feature selection methods and models: 
+  
+     * Use text mining to select top 10 frequent word as TF-IDF features and conduct data preparation 
+     before applying predictive regression models;
+     
+     * Select features by exploring the correlation among each variables;
+     
+       Explore the correlation among each feature with data visualization such as pair plot and correlation map;
+      
+       select features with correlation > 0.5;
+      
+       apply four machine learning models: ridge, lasso, random forest and support vector machine; 
+      
+       Compare the competence of four models with RMSE.
+      
+       Turns out random forest has a better performance for training. 
+      
+
+
+
+2. Dynamic exploratory data analysis reports generated from Yelp Fusion API. It could be delivered to external shareholders and massive users for advertising, and to internal departments for research and analysis.
+
+     * We succeeded Querying most updated delivery data from YELP Fusion API when working with the ETL Pipeline; 
+      (Yelp shares limited amount of open data resources, only 19 businesses are extracted from the open API )
+
+     * We generated the dynamic engine to describe the result of the EDA analysis based on static yelp open data;
+
+     * For Yelp, it’s tangible to make full use of their own Fusion API to extract the latest information, deliver the          dynamic report of EDA results monthly or quarterly on the official website.
+
+
+
+
+3. We identified the business opportunities for help. By analyzing the relationship between business locations and number of reviews, we found that the number of reviews is negatively correlated with latitude and positively correlated with longitude. We suggest that Yelp build partnerships with businesses in the South and East side of the United States. 
+
+
+
+
+4. We explored the relationship between the number of fans and the review counts, and the relationship between the number of fans between the keyword “useful”, which means we are able to understand how different factors are affecting the number of fans. 
+
+     * Some of the users comment a lot because they might use fake reviews to abuse the commenting area for advertising;
+     
+     * It’s better for yelp to set a comments limitation to help prevent fake reviews.
+     
+     * The keyword ‘useful’ delivers high quality information. 
+
+     * In the future, it’s possible for data scientists at Yelp to extract more factors extracted from user behaviors
+     and explore how these factors are correlated with gaining more fans. In this way, the platform would be able 
+     to generate an amusing guide book coaching users how to generate feedback and help them gain more fans. 
+
+
+
+
+5. We monitored star rating fluctuation, extracted keywords analysis, and review sentimental trends to evaluate the business performance with time series analysis and NLP 
+
+     * Bing Lexicon: proportion of positive/negative reviews to monitor business performance 
+        
+        Proportion of negative reviews larger than a certain threshold means that the business is performing 
+        poorly on customer satisfaction;
+        
+        Analyze the most frequent topic in negative reviews to generate actionable solutions to help business 
+        improve performance as soon as possible;
+        
+        Test the proportion of positive reviews to measure and evaluate solution effectiveness.
+        
+        
+     * ‘nrc’ Lexicon:categorize words with emotions.
+     
+     * AFINN Lexicon: sentiment scores for reviews.
+     
+     * Time Series: We use star ratings fluctuation over a period of time to analyze the general performance and 
+     obtain trends or patterns
+        
+        Plot time series pattern；Forecast using Exponential Smoothing Models;
+               
+        We set a threshold of 4 out of 5 stars;
+        
+        If the star ratings are above 4, business operation is comparatively successful;
+        
+        If the rating is less than 4, business improvement needs to be made.
+        
+        Use ETS models to estimate the model parameters and return information on the fitted model
+     
+
+
+
+6. we choose business_id with top 10 review counts as an example to create recommend system.
+
+     * Non-personalized recommendation system
+     
+     * User-based collaborative filtering
+     
+     * Item-based collaborative filtering
+     
+     * Hybrid recommender
+
+
+
+## Part 6: Recommendations about how to use the products, services, or information created by the report {.tabset}
+
+1. Two reports will be provided, which are reproducible.
+
+   * Static Report: see below for description of each tabs
+   
+   * Dynamic Report: run the separate ..._dynamic.rmd file to interact with data and gather insights
+   
+   
+2. We used a relative path so that the user can save the reports and updated data files in designated locations/folders and simply run the reports. The reports will automatically look for the updated files and produce the updated reports.
+
+
+3. Static Report:
+
+   * The advantage of static report is that it provides valuable information on the predefined questions. 
+   Static report includes detailed analysis and uses of machine learning techniques.
+   
+   
+        Part 1: Data Summary (includes the explorations of the data such as categories of businesses, 
+         rating distribution, and top businesses that have the most number of reviews).
+    
+        Part 2: Performance Diagnosis 
+    
+            Q1. Sentiment Analysis - walks through sentiment analysis of user reviews of businesses based on 
+            Bing lexicon, NRC lexicon, AFINN lexicon.
+    
+            Q2. Text Mining - walks through building the predictive models using TF-IDF features.
+    
+            Q3. Time Series - walks through analyzing time series forecasting model and analyzing 
+            the business performance.
+    
+            Q4. Recommender System: walks through different recommender systems based on 
+            non-personalized recommendation,user-based collaborative filtering, 
+            item-based collaborative filtering, hybrid recommender. 
+            
+        Part 3: Relationships b/t Location and Reviews - detailed analysis of review counts; 
+        includes the map of united states and concentration of review counts.
+        
+        Part 4: Understanding users with EDA and apply machine learning models to predict average 
+        star_ratings with selected features.
+
+   * Recommendations to Mgrs:
+   
+   
+        a. Increase partnerships with local businesses in Southern and Eastern States.
+        
+        b. Actively communicate with businesses to update on COVID-19 status
+             ex) outdoor-dining availability should be up-to-date.
+             
+        c. Enhance User Experience for Delivery Users
+             Create and Promote Delivery Rating System
+             Features: delivery time, quality of delivered food, delivery food selection, etc.
+             
+        f. Use sentiment analysis to understand each business effectiveness and create tools for small businesses
+        to improve their services.
+        
+        g. Use recommender system to effectively recommend businesses to users.
+
+
+4. Dynamic report: 
+
+   * Dynamic report adds flexibility to the static report. It includes a graphic display that allows the user to 
+   interact with data. Multiple functionality and features were added to different tabs so that each user can filter 
+   on certain data and be able to find information. 
+   
+   
+        a. Business Rating Dist. - this tab shows the rating distribution of businesses. A user can filter the data 
+        on state and categories to just include certain states or categories in the histogram. The histogram will 
+        change based on the data that the user specified. In addition, a user can also select to show the histogram 
+        based on the open businesses only and minimum number of reviews. 
+        
+        b. Categories - this tab shows the top number of business categories. The user can select the number of 
+        categories to show using the slider input. The user can also adjust the size of the category names using 
+        the slider input below. 
+        
+        c. Geographical Potential Market - Users could choose states and the star rating threshold to find the mean 
+        number of review counts for each business category. The review count is one aspect to show the potential 
+        market size for business. This function could help different kinds of business to decide where to open their 
+        new stores and locate their potential consumers. 
+   
+   
+
+## Part 7: Relevant citations to literature {.tabset}
+
+1. Pesce, Nicole Lyn. "55% of businesses closed on Yelp have shut down for good during the coronavirus pandemic." MarketWatch. July 22, 2020. 
+
+2. https://www.marketwatch.com/story/41-of-businesses-listed-on-yelp-have-closed-for-good-during-the-pandemic-2020-06-25 (accessed August 9, 2020).
+
+3. https://medium.com/@zhiwei_zhang/machine-learning-43a23c3e250a
+(access August 6, 2002)
+
+
+

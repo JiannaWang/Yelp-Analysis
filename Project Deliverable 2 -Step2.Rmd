@@ -1,0 +1,477 @@
+---
+title: "sentiment analysis"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+install.packages("tidytext")
+```
+
+
+```{r}
+library(dplyr)
+library(tidytext)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(rjson)
+library(jsonlite)
+library(ggthemes)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+covid=read.csv('covid.csv')
+business=read.csv('Business.csv')
+review=read.csv('Review.csv')
+user=read.csv('User.csv')
+```
+
+
+
+```{r}
+covid
+business
+review
+user
+```
+
+
+
+```{r cars, echo=TRUE}
+ggplot(data=yelp,aes(x=stars))+
+  geom_histogram(fill='red')+
+  theme_economist()+
+  coord_flip()
+```
+
+
+## Including Plots
+```{r pressure, echo=FALSE}
+yelp%>%
+  unnest_tokens(input = text, output = word)%>%
+  select(word)%>%
+  anti_join(stop_words)%>%
+  group_by(word)%>%
+  summarize(count = n())%>%
+  ungroup()%>%
+  arrange(desc(count))%>%
+  top_n(30)
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+
+```{r}
+yelp%>%
+  unnest_tokens(input = text, output = word)%>%
+  select(word)%>%
+  anti_join(stop_words)%>%
+  group_by(word)%>%
+  summarize(count = n())%>%
+  ungroup()%>%
+  arrange(desc(count))%>%
+  top_n(25)%>%
+  ggplot(aes(x=reorder(word,count), y=count, fill=count))+
+    geom_col()+
+    xlab('words')+
+    coord_flip()
+
+```
+
+
+```{r}
+install.packages('qdap')
+library('qdap') 
+freq_terms(text.var = yelp$text,top = 30) plot(freq_terms(text.var = yelp$text,top = 30))
+
+```
+
+
+```{r}
+library(dplyr); 
+library(tidyr)
+```
+
+# number of words in each review
+```{r}
+yelp %>%
+  select(review_id,text)%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word,input=text)%>%
+  ungroup()%>%
+  group_by(review_id)%>%
+  summarize(count = n())
+```
+
+
+#
+```{r}
+
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)
+
+
+```
+
+
+#total number of positive words and negative words
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  count()
+
+```
+
+
+
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)
+
+```
+
+
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  count()%>%
+  ggplot(aes(x=sentiment,y=n,fill=sentiment))+geom_col()+theme_economist()+guides(fill=F)+
+  coord_flip()
+
+```
+
+
+```{r}
+yelp %>%
+  select(review_id,text)%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  ungroup()%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))
+
+```
+
+
+```{r}
+yelp %>%
+  select(review_id,text,stars)%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  ungroup()%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(stars,sentiment)%>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))
+
+```
+
+#visualization
+```{r}
+library(ggthemes)
+yelp %>%
+  select(review_id,text,stars)%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  ungroup()%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(stars,sentiment)%>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))%>%
+  ggplot(aes(x=stars,y=proportion,fill=sentiment))+geom_col()+theme_economist()+coord_flip()
+
+```
+
+# emotions in reviews
+```{r}
+nrc = read.table(file = 'https://raw.githubusercontent.com/pseudorational/data/master/nrc_lexicon.txt',
+                 header = F,
+                 col.names = c('word','sentiment','num'),
+                 sep = '\t',
+                 stringsAsFactors = F)
+nrc = nrc[nrc$num!=0,]
+nrc$num = NULL
+
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(sentiment)%>%
+  count()
+
+
+
+```
+
+
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(sentiment)%>%
+  count()
+
+```
+
+#Emotions in Reviews
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(sentiment)%>%
+  count()%>%
+  ggplot(aes(x=reorder(sentiment,X = n),y=n,fill=sentiment))+geom_col()+guides(fill=F)+coord_flip()+theme_wsj()
+
+```
+
+#Ratings of each Review based on Emotions Expressed
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(review_id,sentiment,stars)%>%
+  count()
+```
+
+#Ratings of all Reviews based on Emotion Expressed
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(review_id,sentiment,stars)%>%
+  count()%>%
+  group_by(sentiment, stars)%>%
+  summarize(n = mean(n))%>%
+  data.frame()
+```
+
+#visualization
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(review_id,sentiment,stars)%>%
+  count()%>%
+  group_by(sentiment, stars)%>%
+  summarize(n = mean(n))%>%
+  ungroup()%>%
+  ggplot(aes(x=stars,y=n,fill=stars))+
+  geom_col()+
+  facet_wrap(~sentiment)+
+  guides(fill=F)+coord_flip()
+
+```
+
+#Correlation between emotion expressed and review rating
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(review_id,sentiment,stars)%>%
+  count()%>%
+  ungroup()%>%
+  group_by(sentiment)%>%
+  summarize(correlation = cor(n,stars))
+
+```
+
+#Scatterplot of relationship
+#Let us examine scatterplots to gain a better understanding of the correlations.
+```{r}
+yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output = word, input = text)%>%
+  inner_join(nrc)%>%
+  group_by(review_id,sentiment,stars)%>%
+  count()%>%
+  ungroup()%>%
+  group_by(sentiment)%>%
+  ggplot(aes(x=stars,y=n))+geom_point()+facet_wrap(~sentiment)+geom_smooth(method='lm',se=F)
+
+
+```
+
+
+```{r}
+afinn = read.table('https://raw.githubusercontent.com/pseudorational/data/master/AFINN-111.txt',
+                   header = F,
+                   quote="",
+                   sep = '\t',
+                   col.names = c('word','value'), 
+                   encoding='UTF-8',
+                   stringsAsFactors = F)
+
+```
+
+
+
+
+
+#Next, we will examine the sentiment of all reviews.
+```{r}
+yelp %>%
+  select(review_id,text)%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  inner_join(afinn)%>%
+  summarize(reviewSentiment = mean(value))%>%
+  ungroup()%>%
+  ggplot(aes(x=reviewSentiment,fill=reviewSentiment>0))+
+  geom_histogram(binwidth = 0.1)+
+  scale_x_continuous(breaks=seq(-5,5,1))+scale_fill_manual(values=c('tomato','seagreen'))+
+  guides(fill=F)+
+  theme_wsj()
+
+
+
+```
+
+```{r}
+library(lexicon)
+
+
+```
+
+# Jockers Lexicon
+```{r}
+yelp %>%
+  select(review_id,text)%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  inner_join(key_sentiment_jockers)%>%
+  summarize(reviewSentiment = mean(value))%>%
+  ungroup()%>%
+  ggplot(aes(x=reviewSentiment,fill=reviewSentiment>0))+
+  geom_histogram(binwidth = 0.1)+
+  scale_x_continuous(breaks=seq(-5,5,1))+scale_fill_manual(values=c('tomato','seagreen'))+
+  guides(fill=F)+
+  theme_wsj()
+```
+
+#Wordcloud 
+# In my opinion, wordclouds offer little insight into the data, yet they tend to be very good at capturing interest of non-technical audiences. Let us begin by creating a wordcloud from our data using library(tidytext), library(dplyr), library(tidyr),and library(wordcloud) functions.
+```{r}
+library(wordcloud)
+wordcloudData = 
+  yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  anti_join(stop_words)%>%
+  group_by(word)%>%
+  summarize(freq = n())%>%
+  arrange(desc(freq))%>%
+  ungroup()%>%
+  data.frame()
+
+
+library(wordcloud)
+set.seed(617)
+wordcloud(words = wordcloudData$word,wordcloudData$freq,scale=c(3,0.5),max.words = 80,colors=brewer.pal(8,"Spectral"))
+
+
+```
+
+#Comparison Cloud
+```{r}
+library(tidyr)
+wordcloudData = 
+  yelp%>%
+  group_by(review_id)%>%
+  unnest_tokens(output=word,input=text)%>%
+  anti_join(stop_words)%>%
+  inner_join(get_sentiments('bing'))%>%
+  ungroup()%>%
+  count(sentiment,word,sort=T)%>%
+  spread(key=sentiment,value = n,fill=0)%>%
+  data.frame()
+rownames(wordcloudData) = wordcloudData[,'word']
+wordcloudData = wordcloudData[,c('positive','negative')]
+set.seed(617)
+comparison.cloud(term.matrix = wordcloudData,scale = c(2,0.5),max.words = 200, rot.per=0)
+
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
