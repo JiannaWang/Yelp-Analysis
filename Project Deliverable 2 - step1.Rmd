@@ -85,7 +85,7 @@ cor(yelp$stars,yelp$funny)
 
 
 
-# Cluster - Celia
+# Cluster
 # data prepare for clustering
 ```{r}
 str(yelp)
